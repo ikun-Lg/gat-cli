@@ -18,7 +18,7 @@ const DEFAULT_CONFIG = {
     glm: {
       apiKey: '',
       baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
-      model: 'glm-4-flash',
+      model: 'glm-4.7-flash',
     },
     openai: {
       apiKey: '',

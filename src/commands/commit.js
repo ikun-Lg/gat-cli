@@ -85,12 +85,12 @@ async function commitCommand(options) {
   if (!message) {
     const spinner = ora('AI 正在生成 commit message...').start();
     try {
-      // 截断 diff 避免 token 过多（保留前 4000 字符）
-      const trimmedDiff = finalDiff.length > 4000
-        ? finalDiff.slice(0, 4000) + '\n...(diff too large, truncated)'
+      // 截断 diff 避免 token 过多（保留前 8000 字符）
+      const trimmedDiff = finalDiff.length > 8000
+        ? finalDiff.slice(0, 8000) + '\n...(diff too large, truncated)'
         : finalDiff;
 
-      message = await ai.generateCommitMessage(trimmedDiff, config);
+      message = await ai.generateCommitMessage(trimmedDiff, finalStat, config);
       spinner.succeed(chalk.green('AI 生成完成'));
     } catch (err) {
       spinner.fail(chalk.red('AI 生成失败'));

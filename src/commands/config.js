@@ -6,6 +6,45 @@ const configManager = require('../config');
 
 const SUPPORTED_PROVIDERS = ['deepseek', 'glm', 'openai'];
 
+// 各提供商的常用模型预设
+const PROVIDER_MODELS = {
+  deepseek: [
+    { name: 'deepseek-chat       (通用，推荐)', value: 'deepseek-chat' },
+    { name: 'deepseek-reasoner   (深度推理，R1)', value: 'deepseek-reasoner' },
+    { name: '自定义...', value: '__custom__' },
+  ],
+  glm: [
+    new inquirer.Separator('── 旗舰模型 ──'),
+    { name: 'glm-5               (最新旗舰)', value: 'glm-5' },
+    { name: 'glm-4.7             (高性能)', value: 'glm-4.7' },
+    new inquirer.Separator('── 均衡模型 ──'),
+    { name: 'glm-4.7-flashx      (快速)', value: 'glm-4.7-flashx' },
+    { name: 'glm-4.5-air         (均衡)', value: 'glm-4.5-air' },
+    { name: 'glm-4.5-airx        (均衡快速)', value: 'glm-4.5-airx' },
+    { name: 'glm-4-long          (长上下文)', value: 'glm-4-long' },
+    new inquirer.Separator('── 免费模型 ──'),
+    { name: 'glm-4.7-flash       (免费)', value: 'glm-4.7-flash' },
+    { name: 'glm-4.5-flash       (免费，支持推理)', value: 'glm-4.5-flash' },
+    { name: 'glm-4-flash-250414  (免费)', value: 'glm-4-flash-250414' },
+    new inquirer.Separator('── GLM Plan 编程模型 ──'),
+    { name: 'codegeex-4          (代码生成)', value: 'codegeex-4' },
+    { name: 'glm-4.6             (对话+编程)', value: 'glm-4.6' },
+    new inquirer.Separator(),
+    { name: '自定义...', value: '__custom__' },
+  ],
+  openai: [
+    { name: 'gpt-4o-mini         (快速，低成本)', value: 'gpt-4o-mini' },
+    { name: 'gpt-4o              (旗舰)', value: 'gpt-4o' },
+    { name: 'o1-mini             (推理)', value: 'o1-mini' },
+    { name: '自定义...', value: '__custom__' },
+  ],
+};
+
+const GLM_BASE_URLS = {
+  chat: 'https://open.bigmodel.cn/api/paas/v4',
+  plan: 'https://open.bigmodel.cn/api/coding/paas/v4',
+};
+
 /**
  * gat config set [options]
  */
@@ -42,6 +81,11 @@ async function configSet(options) {
     const provider = options.provider || config.provider;
     config.providers[provider].model = options.model;
     console.log(chalk.green(`✓ 已设置 ${provider} 的模型为: ${options.model}`));
+    if (provider === 'glm' && !options.baseUrl) {
+      console.log(chalk.yellow(`  提示：如 baseUrl 不对请手动指定：`));
+      console.log(chalk.gray(`    普通套餐：--base-url ${GLM_BASE_URLS.chat}`));
+      console.log(chalk.gray(`  Coding套餐：--base-url ${GLM_BASE_URLS.plan}`));
+    }
   }
 
   if (options.baseUrl) {
@@ -124,6 +168,34 @@ async function interactiveConfig(config) {
     },
     {
       type: 'list',
+      name: 'model',
+      message: (ans) => `选择 ${ans.provider} 的模型:`,
+      choices: (ans) => PROVIDER_MODELS[ans.provider] || [{ name: '自定义...', value: '__custom__' }],
+      default: (ans) => config.providers[ans.provider]?.model,
+    },
+    {
+      type: 'input',
+      name: 'customModel',
+      message: '输入自定义模型名称:',
+      when: (ans) => ans.model === '__custom__',
+      validate: (v) => v.trim() !== '' || '模型名称不能为空',
+    },
+    {
+      type: 'list',
+      name: 'glmPlan',
+      message: '你购买的是哪种 GLM 套餐？',
+      when: (ans) => ans.provider === 'glm',
+      choices: [
+        { name: '普通套餐  (api/paas/v4)', value: 'chat' },
+        { name: 'Coding 套餐  (api/coding/paas/v4)', value: 'plan' },
+      ],
+      default: () => {
+        const cur = config.providers.glm?.baseUrl || '';
+        return cur.includes('coding') ? 'plan' : 'chat';
+      },
+    },
+    {
+      type: 'list',
       name: 'language',
       message: 'Commit message 语言:',
       choices: [
@@ -153,6 +225,13 @@ async function interactiveConfig(config) {
   config.provider = answers.provider;
   if (answers.apiKey) {
     config.providers[answers.provider].apiKey = answers.apiKey;
+  }
+  const selectedModel = answers.model === '__custom__' ? answers.customModel.trim() : answers.model;
+  if (selectedModel) {
+    config.providers[answers.provider].model = selectedModel;
+  }
+  if (answers.provider === 'glm' && answers.glmPlan) {
+    config.providers.glm.baseUrl = GLM_BASE_URLS[answers.glmPlan];
   }
   config.commit.language = answers.language;
   config.commit.style = answers.style;

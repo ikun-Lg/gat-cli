@@ -1,6 +1,6 @@
 # gat-cli
 
-> AI 驱动的 Git 提交工具，自动生成 commit message，告别手写提交信息。
+> AI 驱动的 Git 工作流工具，覆盖从开发到发布的完整流程。
 
 支持 DeepSeek、智谱 GLM、OpenAI 等多种 AI 提供商。
 
@@ -30,7 +30,20 @@ gat 会自动分析你的代码变更，调用 AI 生成 commit message，确认
 
 ---
 
-## 命令
+## 命令概览
+
+| 命令 | 功能 |
+|------|------|
+| `gat commit` | AI 生成 commit message 并提交 |
+| `gat review` | 提交前 AI 代码审查，发现潜在问题 |
+| `gat log` | 根据 commit 历史生成版本 Changelog |
+| `gat explain` | 用自然语言解释最近的代码变更 |
+| `gat merge-msg` | 生成 Pull Request 标题和描述 |
+| `gat fix` | AI 辅助逐文件解决 merge conflict |
+| `gat branch` | 根据任务描述生成规范分支名并创建 |
+| `gat config` | 配置 AI 提供商和参数 |
+
+---
 
 ### `gat commit`
 
@@ -61,6 +74,86 @@ gat commit [options]
   ✎ 编辑后提交
   ↺ 重新生成
   ✗ 取消
+```
+
+---
+
+---
+
+### `gat review`
+
+Push 前让 AI 做一轮代码审查。
+
+```bash
+gat review        # 审查已 staged 的变更
+gat review -a     # 审查所有未提交变更
+```
+
+审查维度：Bug 风险、安全问题、性能问题、代码质量、最佳实践。
+
+---
+
+### `gat log`
+
+根据 commit 历史自动生成结构化 Changelog。
+
+```bash
+gat log                              # 从上一个 tag 到 HEAD
+gat log --version 1.2.0             # 指定版本号
+gat log --from v1.0.0 --to v1.2.0  # 指定范围
+gat log --version 1.2.0 -o CHANGELOG.md  # 写入文件
+```
+
+---
+
+### `gat explain`
+
+用自然语言解释最近的代码改动，方便向同事或 PM 同步进度。
+
+```bash
+gat explain              # 解释最近 5 次 commit
+gat explain HEAD~10      # 解释最近 10 次 commit
+gat explain v1.0.0..HEAD # 解释某个版本之后的所有变更
+```
+
+---
+
+### `gat merge-msg`
+
+在 feature 分支上运行，自动生成 PR 标题和描述，直接贴到 GitHub/GitLab。
+
+```bash
+gat merge-msg                    # 自动检测目标分支 (main/master)
+gat merge-msg --base develop     # 指定目标分支
+```
+
+---
+
+### `gat fix`
+
+merge 冲突后运行，AI 逐文件分析冲突双方意图，给出推荐的合并方案。
+
+```bash
+gat fix
+```
+
+支持一键应用 AI 建议的解决方案，或手动编辑后继续。
+
+---
+
+### `gat branch`
+
+描述任务，AI 生成符合规范的分支名并直接创建切换。
+
+```bash
+gat branch "修复购物车数量显示错误"
+# → fix/cart-quantity-display
+
+gat branch "新增用户消息通知功能"
+# → feat/user-message-notification
+
+gat branch "优化首页加载速度" --no-create
+# 只生成分支名，不创建
 ```
 
 ---

@@ -1,7 +1,7 @@
 {
   "name": "gat-cli",
-  "version": "1.0.0",
-  "description": "AI-powered git commit message generator CLI",
+  "version": "1.1.0",
+  "description": "AI-powered git commit message generator CLI. Supports DeepSeek, GLM, OpenAI.",
   "main": "src/index.js",
   "bin": {
     "gat": "./bin/gat.js"
@@ -10,10 +10,18 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "node bin/gat.js"
   },
-  "keywords": ["git", "ai", "commit", "cli", "deepseek", "glm"],
-  "author": "",
+  "keywords": ["git", "ai", "commit", "cli", "deepseek", "glm", "openai", "conventional-commits", "commit-message"],
+  "author": "lggbond",
   "license": "ISC",
   "type": "commonjs",
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md"
+  ],
   "dependencies": {
     "axios": "^1.7.9",
     "chalk": "^4.1.2",
