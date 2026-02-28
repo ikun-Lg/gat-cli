@@ -8,9 +8,20 @@
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "node bin/gat.js"
+    "dev": "node bin/gat.js",
+    "build:tui": "esbuild src/tui/App.jsx --bundle --platform=node --format=esm --outfile=dist/tui.mjs --external:ink --external:react --external:ink-text-input --banner:js=\"import { createRequire } from 'module'; const require = createRequire(import.meta.url);\""
   },
-  "keywords": ["git", "ai", "commit", "cli", "deepseek", "glm", "openai", "conventional-commits", "commit-message"],
+  "keywords": [
+    "git",
+    "ai",
+    "commit",
+    "cli",
+    "deepseek",
+    "glm",
+    "openai",
+    "conventional-commits",
+    "commit-message"
+  ],
   "author": "lggbond",
   "license": "ISC",
   "type": "commonjs",
@@ -20,14 +31,21 @@
   "files": [
     "bin",
     "src",
+    "dist",
     "README.md"
   ],
   "dependencies": {
     "axios": "^1.7.9",
     "chalk": "^4.1.2",
     "commander": "^12.1.0",
+    "ink": "^4.4.1",
+    "ink-text-input": "^5.0.1",
     "inquirer": "^8.2.6",
     "ora": "^5.4.1",
+    "react": "^18.3.1",
     "simple-git": "^3.27.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.20.2"
   }
 }
