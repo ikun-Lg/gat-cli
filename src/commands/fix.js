@@ -38,7 +38,7 @@ async function fixCommand() {
 
     let conflictContent;
     try {
-      conflictContent = git.getConflictContent(filename, cwd);
+      conflictContent = await git.getConflictContent(filename, cwd);
     } catch {
       console.error(chalk.red(`  无法读取文件: ${filename}`));
       continue;

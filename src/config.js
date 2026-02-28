@@ -3,29 +3,20 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const PROVIDERS = require('./providers');
 
 const CONFIG_DIR = path.join(os.homedir(), '.gat-cli');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
+// 从注册表动态生成 providers 默认配置
+const defaultProviders = {};
+for (const [name, p] of Object.entries(PROVIDERS)) {
+  defaultProviders[name] = { apiKey: '', baseUrl: p.defaultBaseUrl, model: p.defaultModel };
+}
+
 const DEFAULT_CONFIG = {
   provider: 'deepseek',
-  providers: {
-    deepseek: {
-      apiKey: '',
-      baseUrl: 'https://api.deepseek.com',
-      model: 'deepseek-chat',
-    },
-    glm: {
-      apiKey: '',
-      baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
-      model: 'glm-4.7-flash',
-    },
-    openai: {
-      apiKey: '',
-      baseUrl: 'https://api.openai.com/v1',
-      model: 'gpt-4o-mini',
-    },
-  },
+  providers: defaultProviders,
   commit: {
     language: 'zh', // zh | en
     style: 'conventional', // conventional | simple

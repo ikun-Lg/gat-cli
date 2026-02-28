@@ -74,6 +74,19 @@ feat: 新增多个 AI 辅助工作流命令
 - 提取通用 AI client，复用 OpenAI-compatible 请求逻辑`;
 }
 
+/**
+ * 用于生成多条备选 commit message 的 system prompt
+ * 在 commitSystem 基础上追加多条输出要求
+ */
+function commitSystemMultiple(language, style, count) {
+  const base = commitSystem(language, style);
+  return (
+    base +
+    `\n\n【额外要求】请生成 ${count} 条不同角度的备选 commit message。` +
+    `用单独一行 "---" 作为分隔符，不要编号，不要解释，直接输出 ${count} 条。`
+  );
+}
+
 function commitUser(stat, diff) {
   const parts = ['以下是这次代码变更，请根据这些变更生成合适的 commit message：'];
   if (stat && stat.trim()) {
@@ -309,6 +322,7 @@ function branchUser(description) {
 
 module.exports = {
   commitSystem,
+  commitSystemMultiple,
   commitUser,
   reviewSystem,
   reviewUser,

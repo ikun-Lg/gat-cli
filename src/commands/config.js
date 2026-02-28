@@ -3,8 +3,15 @@
 const chalk = require('chalk');
 const inquirer = require('inquirer');
 const configManager = require('../config');
+const PROVIDERS = require('../providers');
 
-const SUPPORTED_PROVIDERS = ['deepseek', 'glm', 'openai'];
+const SUPPORTED_PROVIDERS = Object.keys(PROVIDERS);
+
+function maskApiKey(key) {
+  if (!key) return chalk.red('未配置 ✗');
+  if (key.length <= 12) return chalk.green('[已配置] ✓');
+  return chalk.green(key.slice(0, 6) + '****' + key.slice(-4) + ' ✓');
+}
 
 // 各提供商的常用模型预设
 const PROVIDER_MODELS = {
@@ -139,7 +146,7 @@ function configGet() {
     console.log(label);
     console.log(`  model   : ${pc.model}`);
     console.log(`  baseUrl : ${pc.baseUrl}`);
-    console.log(`  apiKey  : ${pc.apiKey ? chalk.green('已配置 ✓') : chalk.red('未配置 ✗')}`);
+    console.log(`  apiKey  : ${maskApiKey(pc.apiKey)}`);
     console.log('');
   }
 

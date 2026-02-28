@@ -17,7 +17,7 @@ const program = new Command();
 program
   .name('gat')
   .description('AI 驱动的 Git 工作流工具')
-  .version('1.1.0');
+  .version('1.2.0');
 
 // ─── commit ───────────────────────────────────────────────────────────────────
 program
@@ -27,6 +27,7 @@ program
   .option('-p, --push', '提交后自动 push 到远端')
   .option('-y, --yes', '跳过确认，直接提交')
   .option('-m, --message <msg>', '直接指定 message（跳过 AI 生成）')
+  .option('-n, --num <n>', '生成 n 条备选 message 供选择（默认 1）', '1')
   .action(async (options) => {
     try { await commitCommand(options); }
     catch (err) { console.error(chalk.red(`\n错误: ${err.message}`)); process.exit(1); }
@@ -137,6 +138,7 @@ program.addHelpText('after', `
 
 示例：
   $ gat commit -a -p
+  $ gat commit -n 3          生成 3 条备选 message 供挑选
   $ gat review -a
   $ gat log --version 1.2.0 -o CHANGELOG.md
   $ gat explain HEAD~5

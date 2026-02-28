@@ -17,10 +17,68 @@ async function checkIsRepo(cwd) {
   }
 }
 
+/**
+ * 读取项目根目录下的 .gatignore，返回排除模式数组
+ */
+function readGatIgnore(cwd) {
+  const ignorePath = path.join(cwd || process.cwd(), '.gatignore');
+  try {
+    const content = fs.readFileSync(ignorePath, 'utf-8');
+    return content
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith('#'));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 简单通配符匹配（支持 * 和 ** 前缀）
+ */
+function matchIgnorePattern(filename, pattern) {
+  // 精确匹配
+  if (filename === pattern) return true;
+  // 扩展名通配符：*.lock → 任意路径下 .lock 结尾
+  if (pattern.startsWith('*.')) {
+    const ext = pattern.slice(1);
+    return filename.endsWith(ext);
+  }
+  // 目录通配：dist/ 或 dist/**
+  const dir = pattern.replace(/\/\*\*$/, '').replace(/\/$/, '');
+  if (dir !== pattern || pattern.endsWith('/')) {
+    return filename === dir || filename.startsWith(dir + '/');
+  }
+  // 无路径分隔符时匹配文件名（basename）
+  if (!pattern.includes('/') && !pattern.includes('*')) {
+    return filename.split('/').pop() === pattern;
+  }
+  return false;
+}
+
+/**
+ * 从 diff 文本中按文件过滤掉 .gatignore 匹配的部分
+ */
+function applyGatIgnore(diff, ignorePatterns) {
+  if (!ignorePatterns.length || !diff) return diff;
+  const sections = diff.split(/(?=^diff --git )/m);
+  const filtered = sections.filter((section) => {
+    if (!section.startsWith('diff --git')) return true;
+    const m = section.match(/^diff --git a\/(.*?) b\//);
+    if (!m) return true;
+    const filename = m[1];
+    return !ignorePatterns.some((p) => matchIgnorePattern(filename, p));
+  });
+  return filtered.join('');
+}
+
 async function getStagedDiff(cwd) {
   const git = getGit(cwd);
+  const ignorePatterns = readGatIgnore(cwd);
+
   const stat = await git.diff(['--cached', '--stat', '--diff-algorithm=minimal']);
-  const content = await git.diff(['--cached', '--diff-algorithm=minimal']);
+  const rawContent = await git.diff(['--cached', '--diff-algorithm=minimal']);
+  const content = applyGatIgnore(rawContent, ignorePatterns);
   return { stat, content };
 }
 
@@ -37,7 +95,23 @@ async function commit(message, cwd) {
 }
 
 async function push(cwd) {
-  return getGit(cwd).push();
+  const git = getGit(cwd);
+  try {
+    return await git.push();
+  } catch (err) {
+    // 新分支没有 upstream 时自动设置
+    const msg = err.message || '';
+    if (
+      msg.includes('no tracking information') ||
+      msg.includes('has no upstream') ||
+      (msg.includes('The current branch') && msg.includes('no upstream'))
+    ) {
+      const status = await git.status();
+      const branch = status.current;
+      return await git.push(['--set-upstream', 'origin', branch]);
+    }
+    throw err;
+  }
 }
 
 async function getCurrentBranch(cwd) {
@@ -47,14 +121,12 @@ async function getCurrentBranch(cwd) {
 
 /**
  * 获取两个 ref 之间的 commit 日志
- * @param {string} from  起始 ref（不含），如 'v1.0.0' 或 'HEAD~10'
- * @param {string} to    结束 ref（含），默认 HEAD
  */
 async function getLog(from, to = 'HEAD', cwd) {
   const git = getGit(cwd);
   const range = from ? `${from}..${to}` : to;
   const result = await git.log([range, '--no-merges']);
-  return result.all; // Array<{ hash, date, message, author_name, body }>
+  return result.all;
 }
 
 /**
@@ -95,11 +167,9 @@ async function getLogFromBase(baseBranch, cwd) {
 async function getDefaultBranch(cwd) {
   const git = getGit(cwd);
   try {
-    // 尝试从远端获取
     const result = await git.raw(['symbolic-ref', 'refs/remotes/origin/HEAD']);
     return result.trim().replace('refs/remotes/origin/', '');
   } catch {
-    // 本地判断
     const branches = await git.branchLocal();
     return branches.all.includes('main') ? 'main' : 'master';
   }
@@ -110,15 +180,15 @@ async function getDefaultBranch(cwd) {
  */
 async function getConflictFiles(cwd) {
   const status = await getGit(cwd).status();
-  return status.conflicted; // string[]
+  return status.conflicted;
 }
 
 /**
  * 读取冲突文件内容（保留冲突标记）
  */
-function getConflictContent(filename, cwd) {
+async function getConflictContent(filename, cwd) {
   const filePath = path.resolve(cwd || process.cwd(), filename);
-  return fs.readFileSync(filePath, 'utf-8');
+  return fs.promises.readFile(filePath, 'utf-8');
 }
 
 /**
@@ -126,7 +196,7 @@ function getConflictContent(filename, cwd) {
  */
 async function resolveConflict(filename, resolvedContent, cwd) {
   const filePath = path.resolve(cwd || process.cwd(), filename);
-  fs.writeFileSync(filePath, resolvedContent, 'utf-8');
+  await fs.promises.writeFile(filePath, resolvedContent, 'utf-8');
   await getGit(cwd).add(filename);
 }
 
