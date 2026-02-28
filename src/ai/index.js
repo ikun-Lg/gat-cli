@@ -8,7 +8,8 @@ const PROVIDERS = require('../providers');
 const ADAPTERS = {
   deepseek: require('./deepseek'),
   glm: require('./glm'),
-  openai: require('./deepseek'), // OpenAI 接口兼容，复用 deepseek 适配器
+  openai: require('./deepseek'),  // OpenAI 接口兼容，复用 deepseek 适配器
+  ollama: require('./deepseek'),  // Ollama 兼容 OpenAI v1 格式，复用 deepseek 适配器
 };
 
 function getProviderConfig(config) {

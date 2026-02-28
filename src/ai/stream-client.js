@@ -8,14 +8,15 @@ const axios = require('axios');
  * @param {string} systemPrompt
  * @param {string} userPrompt
  * @param {object} opts
- * @param {function} opts.onChunk  (delta: string) => void
- * @param {function} opts.onDone   (fullText: string) => void
+ * @param {function} opts.onChunk      (delta: string) => void
+ * @param {function} opts.onDone       (fullText: string) => void
  * @param {AbortController} [opts.signal]
  * @param {number} [opts.maxTokens]
+ * @param {number} [opts.temperature]
  */
 async function streamChat(providerConfig, systemPrompt, userPrompt, opts = {}) {
   const { apiKey, baseUrl, model } = providerConfig;
-  const { onChunk, onDone, signal, maxTokens = 6000 } = opts;
+  const { onChunk, onDone, signal, maxTokens = 6000, temperature = 0.3 } = opts;
 
   const response = await axios.post(
     `${baseUrl}/chat/completions`,
@@ -25,7 +26,7 @@ async function streamChat(providerConfig, systemPrompt, userPrompt, opts = {}) {
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-      temperature: 0.3,
+      temperature,
       max_tokens: maxTokens,
       stream: true,
     },

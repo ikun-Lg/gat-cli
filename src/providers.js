@@ -17,6 +17,10 @@ const PROVIDERS = {
     defaultModel: 'gpt-4o-mini',
     defaultBaseUrl: 'https://api.openai.com/v1',
   },
+  ollama: {
+    defaultModel: 'llama3',
+    defaultBaseUrl: 'http://localhost:11434/v1',
+  },
 };
 
 module.exports = PROVIDERS;

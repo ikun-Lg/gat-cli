@@ -23,6 +23,19 @@ const DEFAULT_CONFIG = {
     autoPush: false,
     autoStage: false,
   },
+  ai: {
+    temperature: 0.3,  // 生成温度，越高越有创意
+    maxTokens: null,   // null = 使用各命令默认值
+  },
+  prompts: {
+    // 自定义提示词，null = 使用内置默认值
+    commitSystem: null,
+    reviewSystem: null,
+    explainSystem: null,
+    changelogSystem: null,
+    mergeMsgSystem: null,
+    fixSystem: null,
+  },
 };
 
 function ensureConfigDir() {
@@ -68,4 +81,31 @@ function getConfigFilePath() {
   return CONFIG_FILE;
 }
 
-module.exports = { load, save, getConfigFilePath };
+/**
+ * 通过点路径设置配置项并保存
+ * @param {string} dotPath  例如 'providers.deepseek.apiKey' 或 'commit.language'
+ * @param {string} value    字符串值，自动转换 true/false/数字
+ * @returns {object} 更新后的 config
+ */
+function set(dotPath, value) {
+  const config = load();
+  const keys = dotPath.split('.');
+  let obj = config;
+  for (let i = 0; i < keys.length - 1; i++) {
+    if (typeof obj[keys[i]] !== 'object' || obj[keys[i]] === null) {
+      obj[keys[i]] = {};
+    }
+    obj = obj[keys[i]];
+  }
+  // 自动类型转换
+  let coerced = value;
+  if (value === 'true') coerced = true;
+  else if (value === 'false') coerced = false;
+  else if (value === 'null') coerced = null;
+  else if (value !== '' && !isNaN(value)) coerced = Number(value);
+  obj[keys[keys.length - 1]] = coerced;
+  save(config);
+  return config;
+}
+
+module.exports = { load, save, set, getConfigFilePath };

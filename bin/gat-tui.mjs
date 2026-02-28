@@ -10,7 +10,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const { App } = await import(join(__dirname, '../dist/tui.mjs'));
 
 const { waitUntilExit } = render(
-  React.createElement(App, { cwd: process.cwd() })
+  React.createElement(App, { cwd: process.cwd() }),
+  { exitOnCtrlC: false }
 );
 
 await waitUntilExit();

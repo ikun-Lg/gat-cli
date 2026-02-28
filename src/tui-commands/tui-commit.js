@@ -5,6 +5,7 @@ const ai = require('../ai');
 const configManager = require('../config');
 const { streamChat } = require('../ai/stream-client');
 const prompts = require('../ai/prompts');
+const history = require('../utils/history');
 
 /**
  * 按文件粒度智能截断 diff
@@ -104,26 +105,29 @@ async function streamCommitMessage(cwd, opts = {}) {
 
   const trimmedDiff = smartTruncateDiff(diff);
   const { language, style } = config.commit;
+  const temperature = config.ai?.temperature ?? 0.3;
 
-  const systemPrompt = prompts.commitSystem(language, style);
+  const systemPrompt = config.prompts?.commitSystem || prompts.commitSystem(language, style);
   const userPrompt = prompts.commitUser(stat, trimmedDiff);
 
   const fullText = await streamChat(providerConfig, systemPrompt, userPrompt, {
     onChunk,
     onDone,
     signal,
-    maxTokens: 1000,
+    maxTokens: config.ai?.maxTokens || 1000,
+    temperature,
   });
 
   return { fullText, stat, diff: trimmedDiff, config };
 }
 
 /**
- * 执行 git commit
+ * 执行 git commit，并记录 message 到历史
  */
 async function doCommit(message, cwd) {
   const branch = await git.getCurrentBranch(cwd);
   await git.commit(message, cwd);
+  history.save(message);
   return { branch };
 }
 

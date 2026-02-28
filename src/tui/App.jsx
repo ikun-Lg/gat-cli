@@ -1,21 +1,40 @@
-import React, { useState, useCallback, useRef } from 'react';
-import { Box, Text, useApp } from 'ink';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { Box, Text, useApp, useInput } from 'ink';
 
 import { Header } from './Header.jsx';
 import { MessageList } from './MessageList.jsx';
 import { InputBar } from './InputBar.jsx';
 import { CommitAction, CommitSelect, BranchAction } from './CommitAction.jsx';
+import { Onboarding } from './Onboarding.jsx';
 import { useGitStatus } from './hooks/useGitStatus.js';
 import tuiCommit from '../tui-commands/tui-commit.js';
 import tuiReview from '../tui-commands/tui-review.js';
 import tuiBranch from '../tui-commands/tui-branch.js';
+import tuiFix from '../tui-commands/tui-fix.js';
+import tuiLog from '../tui-commands/tui-log.js';
+import tuiExplain from '../tui-commands/tui-explain.js';
+import tuiMergeMsg from '../tui-commands/tui-merge-msg.js';
 import commandRouter from './commandRouter.js';
 import configManager from '../config.js';
+import historyUtil from '../utils/history.js';
 
 const { parseCommand, HELP_TEXT } = commandRouter;
 
 let msgCounter = 0;
 function newId() { return ++msgCounter; }
+
+/**
+ * 检查当前 provider 是否配置了 API Key
+ */
+function needsOnboarding() {
+  try {
+    const config = configManager.load();
+    const prov = config.provider;
+    return !config.providers[prov]?.apiKey;
+  } catch {
+    return true;
+  }
+}
 
 /**
  * 主应用组件
@@ -25,6 +44,7 @@ export function App({ cwd }) {
   const { exit } = useApp();
   const { branch, staged, unstaged, isRepo } = useGitStatus(cwd);
 
+  const [showOnboarding, setShowOnboarding] = useState(() => needsOnboarding());
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState([
     { id: newId(), role: 'system', content: '欢迎使用 gat TUI！输入 /help 查看可用命令。' },
@@ -41,6 +61,34 @@ export function App({ cwd }) {
   // 当前流式消息 ID
   const streamingIdRef = useRef(null);
 
+  // AbortController 用于取消流式请求（P1-11）
+  const abortControllerRef = useRef(null);
+
+  // 上次失败的命令，用于重试（P1-6）
+  const lastFailedCmdRef = useRef(null);
+
+  // Ctrl+C 拦截：STREAMING 时取消流，IDLE 时退出
+  useInput((input, key) => {
+    if (key.ctrl && input === 'c') {
+      if (phase === 'STREAMING' || phase === 'LOADING') {
+        abortControllerRef.current?.abort();
+        if (streamingIdRef.current) {
+          updateStreamingMessage(streamingIdRef.current, '（已取消）', true);
+          streamingIdRef.current = null;
+        }
+        setPhase('IDLE');
+      } else {
+        exit();
+      }
+    }
+    // 重试快捷键（P1-6）
+    if (input === 'r' && phase === 'IDLE' && lastFailedCmdRef.current) {
+      const cmd = lastFailedCmdRef.current;
+      lastFailedCmdRef.current = null;
+      dispatchCommand(cmd);
+    }
+  });
+
   // 追加消息
   const addMessage = useCallback((role, content, extra = {}) => {
     const id = newId();
@@ -55,14 +103,56 @@ export function App({ cwd }) {
     );
   }, []);
 
+  /** 通用流式命令包装器 */
+  const runStream = useCallback(async (userLine, streamFn, streamArgs, onDoneExtra) => {
+    setPhase('LOADING');
+    addMessage('user', userLine);
+
+    let streamText = '';
+    const streamId = addMessage('assistant', '', { streaming: true });
+    streamingIdRef.current = streamId;
+
+    // 创建新的 AbortController
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    setPhase('STREAMING');
+
+    try {
+      const result = await streamFn({
+        ...streamArgs,
+        signal: controller,
+        onChunk: (delta) => {
+          streamText += delta;
+          updateStreamingMessage(streamId, streamText, false);
+        },
+        onDone: (full) => {
+          updateStreamingMessage(streamId, full, true);
+        },
+      });
+      streamingIdRef.current = null;
+      if (onDoneExtra) onDoneExtra(result);
+      else setPhase('IDLE');
+    } catch (err) {
+      if (streamingIdRef.current) {
+        updateStreamingMessage(streamingIdRef.current, streamText || '（已取消）', true);
+        streamingIdRef.current = null;
+      }
+      if (err.name !== 'CanceledError' && err.code !== 'ERR_CANCELED' && err.message !== '已取消') {
+        lastFailedCmdRef.current = null; // will be set by caller
+        addMessage('error', `${err.message}\n[按 r 重试]`);
+      }
+      setPhase('IDLE');
+      throw err;
+    }
+  }, [addMessage, updateStreamingMessage]);
+
   // 处理 /commit 流程
   const handleCommit = useCallback(async (opts) => {
     setPhase('LOADING');
-    addMessage('user', `/commit${opts.autoStage ? ' -a' : ''}${opts.count > 1 ? ` -n ${opts.count}` : ''}`);
+    addMessage('user', `/commit${opts.autoStage ? ' -a' : ''}${opts.count > 1 ? ` -n ${opts.count}` : ''}${opts.pushAfter ? ' -p' : ''}`);
 
     try {
       if (opts.count > 1) {
-        // 多条备选：用非流式 prepareCommit
         const streamId = addMessage('assistant', `正在生成 ${opts.count} 条备选...`, { streaming: true });
         const prepResult = await tuiCommit.prepareCommit(cwd, { autoStage: opts.autoStage, count: opts.count });
         updateStreamingMessage(streamId, `已生成 ${opts.count} 条备选`, true);
@@ -84,10 +174,13 @@ export function App({ cwd }) {
       let streamText = '';
       const streamId = addMessage('assistant', '', { streaming: true });
       streamingIdRef.current = streamId;
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
       setPhase('STREAMING');
 
       const result = await tuiCommit.streamCommitMessage(cwd, {
         autoStage: opts.autoStage,
+        signal: controller,
         onChunk: (delta) => {
           streamText += delta;
           updateStreamingMessage(streamId, streamText, false);
@@ -97,6 +190,7 @@ export function App({ cwd }) {
         },
       });
 
+      streamingIdRef.current = null;
       const finalMessage = result.fullText.trim();
       setCommitMessages([finalMessage]);
       setPendingCommitOpts(opts);
@@ -104,40 +198,29 @@ export function App({ cwd }) {
     } catch (err) {
       if (streamingIdRef.current) {
         updateStreamingMessage(streamingIdRef.current, '', true);
+        streamingIdRef.current = null;
       }
-      addMessage('error', err.message);
+      if (err.name !== 'CanceledError' && err.code !== 'ERR_CANCELED') {
+        lastFailedCmdRef.current = { type: 'commit', ...opts };
+        addMessage('error', `${err.message}\n[按 r 重试]`);
+      }
       setPhase('IDLE');
     }
   }, [cwd, addMessage, updateStreamingMessage]);
 
   // 处理 /review 流程
   const handleReview = useCallback(async (opts) => {
-    setPhase('LOADING');
-    addMessage('user', `/review${opts.all ? ' -a' : ''}`);
-
-    let streamText = '';
-    const streamId = addMessage('assistant', '', { streaming: true });
-    streamingIdRef.current = streamId;
-    setPhase('STREAMING');
-
+    lastFailedCmdRef.current = { type: 'review', ...opts };
     try {
-      await tuiReview.streamReview(cwd, {
-        all: opts.all,
-        onChunk: (delta) => {
-          streamText += delta;
-          updateStreamingMessage(streamId, streamText, false);
-        },
-        onDone: (full) => {
-          updateStreamingMessage(streamId, full, true);
-          setPhase('IDLE');
-        },
-      });
-    } catch (err) {
-      updateStreamingMessage(streamId, streamText || '', true);
-      addMessage('error', err.message);
-      setPhase('IDLE');
-    }
-  }, [cwd, addMessage, updateStreamingMessage]);
+      await runStream(
+        `/review${opts.all ? ' -a' : ''}`,
+        (streamOpts) => tuiReview.streamReview(cwd, { all: opts.all, ...streamOpts }),
+        {},
+        () => setPhase('IDLE')
+      );
+      lastFailedCmdRef.current = null;
+    } catch {}
+  }, [cwd, runStream]);
 
   // 处理 /branch 流程
   const handleBranch = useCallback(async (opts) => {
@@ -152,29 +235,146 @@ export function App({ cwd }) {
       setPendingBranch(branchName);
       setPhase('ACTION_BRANCH');
     } catch (err) {
-      addMessage('error', err.message);
+      lastFailedCmdRef.current = { type: 'branch', ...opts };
+      addMessage('error', `${err.message}\n[按 r 重试]`);
       setPhase('IDLE');
     }
   }, [cwd, addMessage]);
 
-  // 处理 /config
-  const handleConfig = useCallback(() => {
+  // 处理 /fix 流程（P0-1）
+  const handleFix = useCallback(async () => {
+    lastFailedCmdRef.current = { type: 'fix' };
+    try {
+      await runStream(
+        '/fix',
+        (streamOpts) => tuiFix.streamFix(cwd, streamOpts),
+        {},
+        () => setPhase('IDLE')
+      );
+      lastFailedCmdRef.current = null;
+    } catch {}
+  }, [cwd, runStream]);
+
+  // 处理 /log 流程（P0-1）
+  const handleLog = useCallback(async (opts) => {
+    const flagStr = [
+      opts.from ? `--from ${opts.from}` : '',
+      opts.to && opts.to !== 'HEAD' ? `--to ${opts.to}` : '',
+      opts.version && opts.version !== 'Unreleased' ? `--version ${opts.version}` : '',
+      opts.output ? `-o ${opts.output}` : '',
+    ].filter(Boolean).join(' ');
+    lastFailedCmdRef.current = { type: 'log', ...opts };
+    try {
+      await runStream(
+        `/log${flagStr ? ' ' + flagStr : ''}`,
+        (streamOpts) => tuiLog.streamLog(cwd, { ...opts, ...streamOpts }),
+        {},
+        (result) => {
+          if (result?.savedToFile && opts.output) {
+            addMessage('system', `✓ Changelog 已写入 ${opts.output}`);
+          }
+          setPhase('IDLE');
+        }
+      );
+      lastFailedCmdRef.current = null;
+    } catch {}
+  }, [cwd, runStream, addMessage]);
+
+  // 处理 /explain 流程（P0-1）
+  const handleExplain = useCallback(async (opts) => {
+    lastFailedCmdRef.current = { type: 'explain', ...opts };
+    try {
+      await runStream(
+        `/explain${opts.range ? ' ' + opts.range : ''}`,
+        (streamOpts) => tuiExplain.streamExplain(cwd, { range: opts.range, ...streamOpts }),
+        {},
+        () => setPhase('IDLE')
+      );
+      lastFailedCmdRef.current = null;
+    } catch {}
+  }, [cwd, runStream]);
+
+  // 处理 /merge-msg 流程（P0-1）
+  const handleMergeMsg = useCallback(async (opts) => {
+    lastFailedCmdRef.current = { type: 'merge-msg', ...opts };
+    try {
+      await runStream(
+        `/merge-msg${opts.base ? ' -b ' + opts.base : ''}`,
+        (streamOpts) => tuiMergeMsg.streamMergeMsg(cwd, { base: opts.base, ...streamOpts }),
+        {},
+        () => setPhase('IDLE')
+      );
+      lastFailedCmdRef.current = null;
+    } catch {}
+  }, [cwd, runStream]);
+
+  // 处理 /config（P0-3）
+  const handleConfig = useCallback((opts) => {
+    if (opts.action === 'set') {
+      if (!opts.key) {
+        addMessage('error', '用法：/config set <key> <value>\n例如：/config set providers.deepseek.apiKey sk-xxx');
+        return;
+      }
+      addMessage('user', `/config set ${opts.key} ${opts.value}`);
+      try {
+        configManager.set(opts.key, opts.value);
+        addMessage('system', `✓ 已设置 ${opts.key} = ${opts.value}`);
+      } catch (err) {
+        addMessage('error', `设置失败: ${err.message}`);
+      }
+      return;
+    }
+
     addMessage('user', '/config');
     const config = configManager.load();
     const prov = config.provider;
     const pc = config.providers[prov] || {};
     const lines = [
       `当前配置：`,
-      `  provider:  ${prov}`,
-      `  model:     ${pc.model || '(未设置)'}`,
-      `  base-url:  ${pc.baseUrl || '(未设置)'}`,
-      `  api-key:   ${pc.apiKey ? pc.apiKey.slice(0, 6) + '...' : '(未配置)'}`,
-      `  language:  ${config.commit?.language || 'zh'}`,
-      `  style:     ${config.commit?.style || 'conventional'}`,
-      `  auto-push: ${config.commit?.autoPush ? 'true' : 'false'}`,
+      `  provider:    ${prov}`,
+      `  model:       ${pc.model || '(未设置)'}`,
+      `  base-url:    ${pc.baseUrl || '(未设置)'}`,
+      `  api-key:     ${pc.apiKey ? pc.apiKey.slice(0, 6) + '...' : '(未配置)'}`,
+      `  language:    ${config.commit?.language || 'zh'}`,
+      `  style:       ${config.commit?.style || 'conventional'}`,
+      `  auto-push:   ${config.commit?.autoPush ? 'true' : 'false'}`,
+      `  temperature: ${config.ai?.temperature ?? 0.3}`,
+      ``,
+      `修改：/config set <key> <value>`,
     ];
     addMessage('assistant', lines.join('\n'));
   }, [addMessage]);
+
+  // 处理 /history（P2-15）
+  const handleHistory = useCallback((opts) => {
+    addMessage('user', `/history${opts.n !== 10 ? ' -n ' + opts.n : ''}`);
+    const entries = historyUtil.recent(opts.n);
+    if (entries.length === 0) {
+      addMessage('assistant', '暂无生成历史。使用 /commit 生成并提交后，历史会保存在此。');
+      return;
+    }
+    const lines = ['最近生成的 commit messages：', ''];
+    entries.forEach((e, i) => {
+      const date = new Date(e.ts).toLocaleString('zh-CN', { hour12: false });
+      lines.push(`${i + 1}. [${date}]`);
+      lines.push(`   ${e.message}`);
+      lines.push('');
+    });
+    addMessage('assistant', lines.join('\n'));
+  }, [addMessage]);
+
+  // 分派命令（供重试用）
+  const dispatchCommand = useCallback((cmd) => {
+    switch (cmd.type) {
+      case 'commit':   handleCommit(cmd); break;
+      case 'review':   handleReview(cmd); break;
+      case 'branch':   handleBranch(cmd); break;
+      case 'fix':      handleFix(); break;
+      case 'log':      handleLog(cmd); break;
+      case 'explain':  handleExplain(cmd); break;
+      case 'merge-msg':handleMergeMsg(cmd); break;
+    }
+  }, [handleCommit, handleReview, handleBranch, handleFix, handleLog, handleExplain, handleMergeMsg]);
 
   // 提交 commit message
   const handleUseCommit = useCallback(async (message) => {
@@ -260,18 +460,40 @@ export function App({ cwd }) {
       case 'branch':
         handleBranch(cmd);
         break;
+      case 'fix':
+        handleFix();
+        break;
+      case 'log':
+        handleLog(cmd);
+        break;
+      case 'explain':
+        handleExplain(cmd);
+        break;
+      case 'merge-msg':
+        handleMergeMsg(cmd);
+        break;
       case 'config':
-        handleConfig();
+        handleConfig(cmd);
+        break;
+      case 'history':
+        handleHistory(cmd);
         break;
       case 'unknown':
         addMessage('error', `未知命令: ${trimmed}，输入 /help 查看可用命令`);
         break;
       default:
-        addMessage('error', `命令 /${cmd.type} 暂未在 TUI 中实现，请使用 CLI 模式：gat ${cmd.type}`);
+        addMessage('error', `命令 /${cmd.type} 暂未实现`);
     }
-  }, [exit, addMessage, handleCommit, handleReview, handleBranch, handleConfig]);
+  }, [exit, addMessage, handleCommit, handleReview, handleBranch, handleFix, handleLog, handleExplain, handleMergeMsg, handleConfig, handleHistory]);
 
   const isIdle = phase === 'IDLE';
+
+  // 首次使用引导（P0-4）
+  if (showOnboarding) {
+    return (
+      <Onboarding onComplete={() => setShowOnboarding(false)} />
+    );
+  }
 
   return (
     <Box flexDirection="column" height="100%">
@@ -317,7 +539,7 @@ export function App({ cwd }) {
 
       {phase === 'STREAMING' && (
         <Box borderStyle="single" borderColor="gray" paddingX={1}>
-          <Text dimColor>AI 生成中... (Ctrl+C 中断)</Text>
+          <Text dimColor>AI 生成中... (Ctrl+C 取消)</Text>
         </Box>
       )}
     </Box>

@@ -1,27 +1,35 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Box, Text, useInput } from 'ink';
 import TextInput from 'ink-text-input';
+import commandRouter from './commandRouter.js';
 
-const COMMANDS = [
-  { name: '/commit',  args: '[-a] [-n <N>] [-p]', desc: 'AI 生成 commit message' },
-  { name: '/review',  args: '[-a]',                desc: 'AI 审查代码变更' },
-  { name: '/branch',  args: '<任务描述>',           desc: 'AI 生成分支名并可选创建' },
-  { name: '/config',  args: '',                    desc: '查看当前配置' },
-  { name: '/help',    args: '',                    desc: '显示帮助' },
-  { name: '/quit',    args: '',                    desc: '退出 TUI' },
-];
+const { COMMAND_DEFS } = commandRouter;
 
 export function InputBar({ value, onChange, onSubmit, disabled = false }) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [dismissed, setDismissed] = useState(false);
 
-  // 仅当输入以 / 开头且还没有输入空格（尚未进入参数区）时才展示候选列表
+  // 命令历史（P0-2）
+  const [history, setHistory] = useState([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  // 保存用户在翻历史前正在输入的内容
+  const pendingInputRef = useRef('');
+
+  // 仅当输入以 / 开头且还没有输入空格时才展示候选列表
   const firstWord = value.includes(' ') ? null : value.toLowerCase();
 
   const suggestions = useMemo(() => {
     if (!firstWord || !firstWord.startsWith('/')) return [];
-    return COMMANDS.filter((cmd) => cmd.name.startsWith(firstWord));
+    return COMMAND_DEFS.filter((cmd) => cmd.name.startsWith(firstWord));
   }, [firstWord]);
+
+  // 参数提示（P1-9）：输入了完整命令名 + 空格后显示
+  const argHint = useMemo(() => {
+    if (!value.includes(' ')) return null;
+    const word = value.split(' ')[0].toLowerCase();
+    const match = COMMAND_DEFS.find((cmd) => cmd.name === word);
+    return match || null;
+  }, [value]);
 
   // 输入字符变化时：重置 dismissed 标志并归位高亮
   useEffect(() => {
@@ -35,34 +43,76 @@ export function InputBar({ value, onChange, onSubmit, disabled = false }) {
     const cmd = suggestions[index];
     if (!cmd) return;
     if (cmd.args) {
-      // 有参数：填入命令 + 空格，等用户继续输入参数（列表会因为空格消失）
       onChange(cmd.name + ' ');
     } else {
-      // 无参数：直接执行
       onChange('');
       onSubmit(cmd.name);
     }
   }, [suggestions, onChange, onSubmit]);
 
   useInput((_char, key) => {
-    if (!showPopup) return;
+    if (disabled) return;
 
-    if (key.upArrow) {
-      setSelectedIndex((i) => (i > 0 ? i - 1 : suggestions.length - 1));
+    if (showPopup) {
+      if (key.upArrow) {
+        setSelectedIndex((i) => (i > 0 ? i - 1 : suggestions.length - 1));
+      } else if (key.downArrow) {
+        setSelectedIndex((i) => (i < suggestions.length - 1 ? i + 1 : 0));
+      } else if (key.tab || key.return) {
+        complete(selectedIndex);
+      } else if (key.escape) {
+        setDismissed(true);
+      }
+      return;
+    }
+
+    // 历史导航（仅在无弹出层时）
+    if (key.upArrow && history.length > 0) {
+      if (historyIndex === -1) {
+        pendingInputRef.current = value;
+      }
+      const newIndex = historyIndex === -1
+        ? history.length - 1
+        : Math.max(0, historyIndex - 1);
+      setHistoryIndex(newIndex);
+      onChange(history[newIndex]);
     } else if (key.downArrow) {
-      setSelectedIndex((i) => (i < suggestions.length - 1 ? i + 1 : 0));
-    } else if (key.tab || key.return) {
-      complete(selectedIndex);
-    } else if (key.escape) {
-      setDismissed(true);
+      if (historyIndex === -1) return;
+      if (historyIndex >= history.length - 1) {
+        setHistoryIndex(-1);
+        onChange(pendingInputRef.current);
+      } else {
+        const newIndex = historyIndex + 1;
+        setHistoryIndex(newIndex);
+        onChange(history[newIndex]);
+      }
     }
   }, { isActive: !disabled });
 
-  // Enter 时：如果弹出层可见则补全而非提交（onSubmit 由 complete 在无参命令时调用）
+  // 当用户手动修改输入时重置历史导航
+  useEffect(() => {
+    if (historyIndex !== -1) {
+      // 如果输入与当前历史条目不同，说明用户已手动修改
+      if (value !== history[historyIndex]) {
+        setHistoryIndex(-1);
+      }
+    }
+  }, [value]);
+
+  // Enter 时：如果弹出层可见则补全，否则提交
   const handleSubmit = useCallback((val) => {
     if (showPopup) {
       complete(selectedIndex);
       return;
+    }
+    const trimmed = val.trim();
+    if (trimmed) {
+      setHistory((prev) => {
+        const filtered = prev.filter((h) => h !== trimmed);
+        return [...filtered, trimmed];
+      });
+      setHistoryIndex(-1);
+      pendingInputRef.current = '';
     }
     onSubmit(val);
   }, [showPopup, complete, selectedIndex, onSubmit]);
@@ -99,6 +149,19 @@ export function InputBar({ value, onChange, onSubmit, disabled = false }) {
               </Box>
             );
           })}
+        </Box>
+      )}
+
+      {/* 参数提示（P1-9）*/}
+      {!showPopup && argHint && argHint.args && (
+        <Box paddingLeft={2} marginBottom={0}>
+          <Text dimColor>
+            <Text color="cyan">{argHint.name}</Text>
+            {' '}
+            <Text color="yellow">{argHint.args}</Text>
+            {'  '}
+            {argHint.desc}
+          </Text>
         </Box>
       )}
 

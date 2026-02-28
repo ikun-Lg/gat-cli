@@ -48,12 +48,15 @@ async function streamReview(cwd, opts = {}) {
 
   const trimmedDiff = diff.length > 8000 ? diff.slice(0, 8000) + '\n...(truncated)' : diff;
   const { language } = config.commit;
+  const temperature = config.ai?.temperature ?? 0.3;
+  const systemPrompt = config.prompts?.reviewSystem || prompts.reviewSystem(language);
 
-  await streamChat(providerConfig, prompts.reviewSystem(language), prompts.reviewUser(trimmedDiff), {
+  await streamChat(providerConfig, systemPrompt, prompts.reviewUser(trimmedDiff), {
     onChunk,
     onDone,
     signal,
-    maxTokens: 6000,
+    maxTokens: config.ai?.maxTokens || 6000,
+    temperature,
   });
 }
 
