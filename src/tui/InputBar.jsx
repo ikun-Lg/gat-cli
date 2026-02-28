@@ -8,6 +8,7 @@ const { COMMAND_DEFS } = commandRouter;
 export function InputBar({ value, onChange, onSubmit, disabled = false }) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [dismissed, setDismissed] = useState(false);
+  const [completionKey, setCompletionKey] = useState(0);
 
   // 命令历史（P0-2）
   const [history, setHistory] = useState([]);
@@ -44,6 +45,7 @@ export function InputBar({ value, onChange, onSubmit, disabled = false }) {
     if (!cmd) return;
     if (cmd.args) {
       onChange(cmd.name + ' ');
+      setCompletionKey((k) => k + 1); // 强制重新挂载 TextInput，光标归位到末尾
     } else {
       onChange('');
       onSubmit(cmd.name);
@@ -168,6 +170,7 @@ export function InputBar({ value, onChange, onSubmit, disabled = false }) {
       <Box borderStyle="single" borderColor={disabled ? 'gray' : 'white'} paddingX={1}>
         <Text color="cyan" bold>❯ </Text>
         <TextInput
+          key={completionKey}
           value={value}
           onChange={onChange}
           onSubmit={handleSubmit}
