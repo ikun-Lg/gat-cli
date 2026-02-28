@@ -1,6 +1,6 @@
 {
   "name": "gat-cli",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "AI-powered git commit message generator CLI. Supports DeepSeek, GLM, OpenAI.",
   "main": "src/index.js",
   "repository": {
